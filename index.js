@@ -23,7 +23,8 @@ if (!AGENT_URL) throw new Error("AGENT_URL is not set");
 const bot = new Telegraf(BOT_TOKEN);
 
 // ==========================
-// ORDERS MEMORY
+// TV ORDERS MEMORY
+// Временная память только для экрана кухни
 // ==========================
 let orders = [];
 
@@ -173,12 +174,15 @@ function colorClass(endsAt) {
   return "green";
 }
 
+function escapeHtml(s) {
+  return String(s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function render(orders) {
   grid.innerHTML = "";
 
   for (let i = 0; i < 10; i++) {
     const o = orders[i];
-
     const card = document.createElement("div");
     card.className = "card";
 
@@ -189,7 +193,13 @@ function render(orders) {
     }
 
     const items = (o.items || [])
-      .map(it => '<div class="item"><span>' + escapeHtml(it.name) + '</span><span>x' + it.qty + '</span></div>')
+      .map(it =>
+        '<div class="item"><span>' +
+        escapeHtml(it.name) +
+        '</span><span>x' +
+        it.qty +
+        '</span></div>'
+      )
       .join("");
 
     card.innerHTML =
@@ -203,10 +213,6 @@ function render(orders) {
   }
 }
 
-function escapeHtml(s) {
-  return String(s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 async function load() {
   try {
     const r = await fetch("/api/orders", { cache: "no-store" });
@@ -218,7 +224,7 @@ async function load() {
 }
 
 setInterval(load, 2500);
-setInterval(() => load(), 1000);
+setInterval(load, 1000);
 load();
 </script>
 </body>
@@ -243,6 +249,11 @@ bot.on("photo", async (ctx) => {
     const photos = ctx.message.photo || [];
     const bestPhoto = photos[photos.length - 1];
 
+    if (!bestPhoto) {
+      await ctx.reply("❌ Фото не найдено.");
+      return;
+    }
+
     const fileLink = await ctx.telegram.getFileLink(bestPhoto.file_id);
     const imageResponse = await fetch(fileLink.href);
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
@@ -256,10 +267,25 @@ bot.on("photo", async (ctx) => {
     const agentResponse = await fetch(AGENT_URL, {
       method: "POST",
       body: form,
-      headers: form.getHeaders(),
+      headers: {
+        ...form.getHeaders(),
+        "ngrok-skip-browser-warning": "true",
+      },
     });
 
-    const data = await agentResponse.json();
+    const agentText = await agentResponse.text();
+
+    let data;
+    try {
+      data = JSON.parse(agentText);
+    } catch {
+      await ctx.reply(
+        "❌ Агент вернул не JSON.\n\n" +
+        "HTTP status: " + agentResponse.status + "\n\n" +
+        agentText.slice(0, 1500)
+      );
+      return;
+    }
 
     if (data.status !== "ok") {
       await ctx.reply(
@@ -284,6 +310,11 @@ bot.on("photo", async (ctx) => {
         qty: Number(it.qty || 1),
       };
     });
+
+    if (!items.length) {
+      await ctx.reply("❌ Агент не нашёл позиции заказа.");
+      return;
+    }
 
     addKitchenOrder(orderNo, prepMinutes, items);
 
