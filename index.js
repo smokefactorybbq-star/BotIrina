@@ -51,6 +51,10 @@ function addKitchenOrder(orderNo, prepMinutes, items = [], cutlery = null) {
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
+app.get("/", (_req, res) => {
+  res.redirect("/screen");
+});
+
 app.get("/api/orders", (_req, res) => {
   pruneOrders();
   res.setHeader("Cache-Control", "no-store");
@@ -63,14 +67,9 @@ app.post("/api/orders/:id/delete", (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/", (_req, res) => {
-  res.redirect("/screen");
-});
-
 app.get("/screen", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.type("html").send(`
-<!doctype html>
+  res.type("html").send(`<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8"/>
@@ -91,7 +90,7 @@ html,body{
   width:100vw;
   height:100vh;
   display:grid;
-  grid-template-columns:repeat(5, 1fr);
+  grid-template-columns:repeat(5,1fr);
   grid-template-rows:1fr;
   gap:10px;
   padding:10px;
@@ -192,82 +191,104 @@ html,body{
 <div class="grid" id="grid"></div>
 
 <script>
-const grid=document.getElementById("grid");
+const grid = document.getElementById("grid");
 
-function pad(n){return String(n).padStart(2,"0")}
+function pad(n){
+  return String(n).padStart(2,"0");
+}
+
 function remainText(endsAt){
-  const ms=endsAt-Date.now();
-  if(ms<=0)return"READY";
-  const s=Math.floor(ms/1000);
-  return Math.floor(s/60)+":"+pad(s%60);
+  const ms = endsAt - Date.now();
+  if(ms <= 0) return "READY";
+  const s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ":" + pad(s % 60);
 }
+
 function colorClass(endsAt){
-  const min=(endsAt-Date.now())/60000;
-  if(min<=0)return"ready";
-  if(min<=10)return"red";
-  if(min<=25)return"yellow";
-  return"green";
+  const min = (endsAt - Date.now()) / 60000;
+  if(min <= 0) return "ready";
+  if(min <= 10) return "red";
+  if(min <= 25) return "yellow";
+  return "green";
 }
+
 function escapeHtml(s){
-  return String(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  return String(s || "").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
+
 function cutleryHtml(v){
-  if(v===true)return'<div class="cutlery need">Need cutlery</div>';
-  if(v===false)return'<div class="cutlery no">No need cutlery</div>';
-  return'<div class="cutlery no">No cutlery info</div>';
+  if(v === true) return '<div class="cutlery need">Need cutlery</div>';
+  if(v === false) return '<div class="cutlery no">No need cutlery</div>';
+  return '<div class="cutlery no">No cutlery info</div>';
 }
+
 async function deleteOrder(id){
   try{
-    await fetch("/api/orders/"+id+"/delete",{method:"POST"});
+    await fetch("/api/orders/" + encodeURIComponent(id) + "/delete", {
+      method: "POST"
+    });
     await load();
   }catch(e){
     console.error(e);
   }
 }
-function render(orders){
-  grid.innerHTML="";
-  for(let i=0;i<5;i++){
-    const o=orders[i];
-    const card=document.createElement("div");
-    card.className="card";
+
+function render(list){
+  grid.innerHTML = "";
+
+  for(let i = 0; i < 5; i++){
+    const o = list[i];
+    const card = document.createElement("div");
+    card.className = "card";
 
     if(!o){
-      card.innerHTML='<div class="empty">—</div>';
+      card.innerHTML = '<div class="empty">—</div>';
       grid.appendChild(card);
       continue;
     }
 
-    const items=(o.items||[]).map(it=>
-      '<div class="item"><span>'+escapeHtml(it.name)+'</span><span>x'+it.qty+'</span></div>'
-    ).join("");
+    const items = (o.items || []).map(function(it){
+      return '<div class="item"><span>' +
+        escapeHtml(it.name) +
+        '</span><span>x' +
+        escapeHtml(it.qty) +
+        '</span></div>';
+    }).join("");
 
-    card.innerHTML=
-      '<button class="close" onclick="deleteOrder(\\''+o.id+'\\')">×</button>'+
-      '<div class="top">'+
-        '<div class="no">'+escapeHtml(o.orderNo)+'</div>'+
-        '<div class="timer '+colorClass(o.endsAt)+'">'+remainText(o.endsAt)+'</div>'+
-      '</div>'+
-      cutleryHtml(o.cutlery)+
-      '<div class="items">'+items+'</div>';
+    card.innerHTML =
+      '<button class="close" data-id="' + escapeHtml(o.id) + '">×</button>' +
+      '<div class="top">' +
+        '<div class="no">' + escapeHtml(o.orderNo) + '</div>' +
+        '<div class="timer ' + colorClass(o.endsAt) + '">' + remainText(o.endsAt) + '</div>' +
+      '</div>' +
+      cutleryHtml(o.cutlery) +
+      '<div class="items">' + items + '</div>';
 
     grid.appendChild(card);
   }
+
+  document.querySelectorAll(".close").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      deleteOrder(btn.getAttribute("data-id"));
+    });
+  });
 }
+
 async function load(){
   try{
-    const r=await fetch("/api/orders",{cache:"no-store"});
-    const data=await r.json();
-    render(data||[]);
+    const r = await fetch("/api/orders", { cache: "no-store" });
+    const data = await r.json();
+    render(data || []);
   }catch(e){
     console.error(e);
   }
 }
+
 setInterval(load,1000);
 load();
 </script>
 </body>
-</html>
-`);
+</html>`);
 });
 
 bot.start(async (ctx) => {
@@ -278,6 +299,7 @@ bot.start(async (ctx) => {
 
 async function askTime(ctx, fileIds) {
   const chatId = ctx.chat.id;
+
   pendingByChat.set(chatId, {
     fileIds: fileIds.slice(0, 3),
     createdAt: Date.now(),
@@ -297,7 +319,7 @@ async function sendToAgentAndScreen(ctx, fileIds, prepMinutes) {
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
 
     form.append("screenshots", imageBuffer, {
-      filename: \`screenshot_\${i + 1}.jpg\`,
+      filename: `screenshot_${i + 1}.jpg`,
       contentType: "image/jpeg",
     });
   }
@@ -317,12 +339,20 @@ async function sendToAgentAndScreen(ctx, fileIds, prepMinutes) {
   try {
     data = JSON.parse(agentText);
   } catch {
-    await ctx.reply("❌ Агент вернул не JSON.\\n\\nHTTP status: " + agentResponse.status + "\\n\\n" + agentText.slice(0, 1500));
+    await ctx.reply(
+      "❌ Агент вернул не JSON.\n\nHTTP status: " +
+      agentResponse.status +
+      "\n\n" +
+      agentText.slice(0, 1500)
+    );
     return;
   }
 
   if (data.status !== "ok") {
-    await ctx.reply("❌ Windows Agent не смог распознать заказ.\\n\\n" + JSON.stringify(data, null, 2).slice(0, 3000));
+    await ctx.reply(
+      "❌ Windows Agent не смог распознать заказ.\n\n" +
+      JSON.stringify(data, null, 2).slice(0, 3000)
+    );
     return;
   }
 
@@ -343,13 +373,14 @@ async function sendToAgentAndScreen(ctx, fileIds, prepMinutes) {
   addKitchenOrder(orderNo, prepMinutes, items, cutlery);
 
   await ctx.reply(
-    "✅ Заказ отправлен на экран кухни.\\n\\n" +
-    "№: " + orderNo + "\\n" +
-    "Время: " + prepMinutes + " мин\\n" +
-    "Приборы: " + (cutlery === true ? "нужны" : cutlery === false ? "не нужны" : "не указано") + "\\n\\n" +
-    "Состав:\\n" +
-    items.map((i) => "• " + i.name + " x" + i.qty).join("\\n") +
-    "\\n\\nЭкран:\\n" +
+    "✅ Заказ отправлен на экран кухни.\n\n" +
+    "№: " + orderNo + "\n" +
+    "Время: " + prepMinutes + " мин\n" +
+    "Приборы: " +
+    (cutlery === true ? "нужны" : cutlery === false ? "не нужны" : "не указано") +
+    "\n\nСостав:\n" +
+    items.map((i) => "• " + i.name + " x" + i.qty).join("\n") +
+    "\n\nЭкран:\n" +
     PUBLIC_URL + "/screen"
   );
 }
@@ -383,7 +414,9 @@ bot.on("photo", async (ctx) => {
       group.timer = setTimeout(async () => {
         const savedGroup = mediaGroups.get(mediaGroupId);
         mediaGroups.delete(mediaGroupId);
+
         if (!savedGroup) return;
+
         await askTime(savedGroup.ctx, savedGroup.fileIds);
       }, 2500);
 
@@ -393,7 +426,7 @@ bot.on("photo", async (ctx) => {
     await askTime(ctx, [bestPhoto.file_id]);
   } catch (e) {
     console.error(e);
-    await ctx.reply("❌ Ошибка при получении фото:\\n" + String(e.message || e));
+    await ctx.reply("❌ Ошибка при получении фото:\n" + String(e.message || e));
   }
 });
 
@@ -420,7 +453,7 @@ bot.on("text", async (ctx) => {
     await sendToAgentAndScreen(ctx, pending.fileIds, Math.floor(prepMinutes));
   } catch (e) {
     console.error(e);
-    await ctx.reply("❌ Ошибка:\\n" + String(e.message || e));
+    await ctx.reply("❌ Ошибка:\n" + String(e.message || e));
   }
 });
 
