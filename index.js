@@ -45,6 +45,7 @@ function addKitchenOrder(orderNo, prepMinutes, items = [], cutlery = null) {
 
   orders.unshift(order);
   pruneOrders();
+
   return order;
 }
 
@@ -323,6 +324,8 @@ async function sendToAgentAndScreen(ctx, fileIds, prepMinutes) {
       contentType: "image/jpeg",
     });
   }
+
+  form.append("prep_minutes", String(prepMinutes));
 
   const agentResponse = await fetch(AGENT_URL, {
     method: "POST",
